@@ -58,6 +58,7 @@ func NewKDController(
 			synced:           informer.Informer().HasSynced,
 			client:           clientMap[k],
 			deploymentLister: deploymentInformerMap[k].Lister(),
+			deploymentSynced: deploymentInformerMap[k].Informer().HasSynced,
 			kubeclient:       kubeClientMap[k],
 		}
 		clusterToolMap[k] = tool
@@ -122,7 +123,9 @@ func (c *KDController) Run(threadiness int, stopCh <-chan struct{}) error {
 }
 
 func (c *KDController) runWorker() {
+	for c.processNextKDEventItem() {
 
+	}
 }
 
 func (c *KDController) processNextKDEventItem() bool {
@@ -147,7 +150,7 @@ func (c *KDController) processNextKDEventItem() bool {
 		}
 
 		c.workqueue.Forget(obj)
-		klog.Infof("Successfully process KDEventItem %s, ^%s", item.clusterId, item.key)
+		klog.Infof("Successfully process KDEventItem %s, %s", item.clusterId, item.key)
 		return nil
 	}(kdEventItem)
 
@@ -223,7 +226,7 @@ func (c *KDController) syncDeployment(clustertool KDClusterTool, eventItem KDEve
 			klog.Infof("Create deployment[%s] in cluster[%s]", deploymentName, clustertool.clusterId)
 		}
 		klog.Errorf("Failed to check status of deployment[%s] in cluster[%s]", deploymentName, clustertool.clusterId)
-	} else if deployment.Spec.Replicas != replicas {
+	} else if *deployment.Spec.Replicas != *replicas {
 		// Sync the replicas
 		clustertool.kubeclient.AppsV1().Deployments(namespace).Update(context.TODO(), c.newDeployment(kdeployment, replicas), metav1.UpdateOptions{})
 		klog.Infof("Update replicas of deployment[%s] in cluster[%s]", deploymentName, clustertool.clusterId)
@@ -232,7 +235,7 @@ func (c *KDController) syncDeployment(clustertool KDClusterTool, eventItem KDEve
 }
 
 func (c *KDController) newDeployment(kdeployment *v1.KDeployment, replicas *int32) *appsv1.Deployment {
-	return &appsv1.Deployment{
+	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kdeployment.Spec.DeploymentName,
 			Namespace: kdeployment.Namespace,
@@ -242,6 +245,8 @@ func (c *KDController) newDeployment(kdeployment *v1.KDeployment, replicas *int3
 		},
 		Spec: kdeployment.Spec.DeploymentTemplate,
 	}
+	deployment.Spec.Replicas = replicas
+	return deployment
 }
 
 func (c *KDController) getKDeployment(clusterId string, namespace string, name string) (*v1.KDeployment, error) {
