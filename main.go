@@ -1,15 +1,16 @@
 package main
 
 import (
-	"context"
+	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 	clientset "kensho.ai/kdeployment/pkg/generated/clientset/versioned"
+	informers "kensho.ai/kdeployment/pkg/generated/informers/externalversions"
 )
 
 func main() {
+	stop := make(chan struct{})
 	klog.InitFlags(nil)
 
 	kubeconfig := "/Users/zhangjinrui/.kube/config"
@@ -22,9 +23,7 @@ func main() {
 	// defaultClient, err := kubernetes.NewForConfig(cfg)
 	kdeploymentClient, err := clientset.NewForConfig(cfg)
 
-	kd, err := kdeploymentClient.DistributionV1().KDeployments("default").Get(context.TODO(), "kdeployment-sample", metav1.GetOptions{})
-	if err != nil {
-		klog.Error(err, "Error when read")
-	}
-	klog.Info(kd.Name)
+	kdInformerFactory := informers.NewSharedInformerFactory(kdeploymentClient, time.Second*30)
+	kdInformerFactory.Distribution().V1().KDeployments().Informer()
+	kdInformerFactory.Start(stop)
 }
