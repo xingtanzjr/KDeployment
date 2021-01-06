@@ -6,9 +6,9 @@ import (
 )
 
 type KDeploymentSpec struct {
-	TotalReplicas *int32 `json:"totalReplicas"`
-	ReplicaPolicy string `json:"replicaPolicy"`
-
+	TotalReplicas      *int32                `json:"totalReplicas"`
+	ReplicaPolicy      string                `json:"replicaPolicy"`
+	DeploymentName     string                `json:"deploymentName"`
 	DeploymentTemplate appsv1.DeploymentSpec `json:"deploymentSpec"`
 }
 

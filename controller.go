@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	appsinformers "k8s.io/client-go/informers/apps/v1"
+	"k8s.io/client-go/kubernetes"
+	appslisters "k8s.io/client-go/listers/apps/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -24,10 +28,13 @@ type KDEventItem struct {
 }
 
 type KDClusterTool struct {
-	clusterId string
-	lister    kdlisters.KDeploymentLister
-	client    clientset.Interface
-	synced    cache.InformerSynced
+	clusterId        string
+	lister           kdlisters.KDeploymentLister
+	client           clientset.Interface
+	synced           cache.InformerSynced
+	deploymentLister appslisters.DeploymentLister
+	deploymentSynced cache.InformerSynced
+	kubeclient       kubernetes.Interface
 }
 
 type KDController struct {
@@ -36,15 +43,22 @@ type KDController struct {
 	//TODO to learn the recorder
 }
 
-func NewKDController(informerMap map[string]kdInformers.KDeploymentInformer, clientMap map[string]clientset.Interface) *KDController {
+func NewKDController(
+	informerMap map[string]kdInformers.KDeploymentInformer,
+	clientMap map[string]clientset.Interface,
+	deploymentInformerMap map[string]appsinformers.DeploymentInformer,
+	kubeClientMap map[string]kubernetes.Interface) *KDController {
+
 	clusterToolMap := make(map[string]KDClusterTool)
 
 	for k, informer := range informerMap {
 		tool := KDClusterTool{
-			clusterId: k,
-			lister:    informer.Lister(),
-			synced:    informer.Informer().HasSynced,
-			client:    clientMap[k],
+			clusterId:        k,
+			lister:           informer.Lister(),
+			synced:           informer.Informer().HasSynced,
+			client:           clientMap[k],
+			deploymentLister: deploymentInformerMap[k].Lister(),
+			kubeclient:       kubeClientMap[k],
 		}
 		clusterToolMap[k] = tool
 	}
@@ -90,7 +104,7 @@ func (c *KDController) Run(threadiness int, stopCh <-chan struct{}) error {
 	klog.Info("Waiting for informer caches to sync")
 	for clusterId, clusterTool := range c.clusterToolMap {
 		klog.Info("Waiting for " + clusterId)
-		if ok := cache.WaitForCacheSync(stopCh, clusterTool.synced); !ok {
+		if ok := cache.WaitForCacheSync(stopCh, clusterTool.synced, clusterTool.deploymentSynced); !ok {
 			return fmt.Errorf("failed to wait for caches to sycn for cluster %s", clusterId)
 		}
 	}
@@ -164,6 +178,12 @@ func (c *KDController) processOneKDEventItem(item KDEventItem) error {
 	for _, clustertool := range c.clusterToolMap {
 		c.replicaKDeployment(clustertool, kdeployment)
 	}
+	var replicas int32
+	// a very simple and uncorrect replicas calculation...
+	replicas = *kdeployment.Spec.TotalReplicas / int32(len(c.clusterToolMap))
+	for _, clustertool := range c.clusterToolMap {
+		c.syncDeployment(clustertool, item, &replicas)
+	}
 
 	return nil
 }
@@ -184,6 +204,44 @@ func (c *KDController) replicaKDeployment(clustertool KDClusterTool, kdeployment
 		}
 	}
 	return nil
+}
+
+func (c *KDController) syncDeployment(clustertool KDClusterTool, eventItem KDEventItem, replicas *int32) error {
+	namespace, name, err := cache.SplitMetaNamespaceKey(eventItem.key)
+	kdeployment, err := clustertool.lister.KDeployments(namespace).Get(name)
+	if err != nil {
+		klog.Errorf("Failed to get KDeployment[%s] in cluster[%s]", name, clustertool.clusterId)
+		return err
+	}
+
+	deploymentName := kdeployment.Spec.DeploymentName
+	deployment, err := clustertool.deploymentLister.Deployments(namespace).Get(deploymentName)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create new deployment for KDeployment
+			clustertool.kubeclient.AppsV1().Deployments(namespace).Create(context.TODO(), c.newDeployment(kdeployment, replicas), metav1.CreateOptions{})
+			klog.Infof("Create deployment[%s] in cluster[%s]", deploymentName, clustertool.clusterId)
+		}
+		klog.Errorf("Failed to check status of deployment[%s] in cluster[%s]", deploymentName, clustertool.clusterId)
+	} else if deployment.Spec.Replicas != replicas {
+		// Sync the replicas
+		clustertool.kubeclient.AppsV1().Deployments(namespace).Update(context.TODO(), c.newDeployment(kdeployment, replicas), metav1.UpdateOptions{})
+		klog.Infof("Update replicas of deployment[%s] in cluster[%s]", deploymentName, clustertool.clusterId)
+	}
+	return nil
+}
+
+func (c *KDController) newDeployment(kdeployment *v1.KDeployment, replicas *int32) *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      kdeployment.Spec.DeploymentName,
+			Namespace: kdeployment.Namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(kdeployment, v1.SchemeGroupVersion.WithKind("KDeployment")),
+			},
+		},
+		Spec: kdeployment.Spec.DeploymentTemplate,
+	}
 }
 
 func (c *KDController) getKDeployment(clusterId string, namespace string, name string) (*v1.KDeployment, error) {
