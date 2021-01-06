@@ -16,8 +16,8 @@ import (
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
 	versioned "kensho.ai/kdeployment/pkg/generated/clientset/versioned"
+	distributionkenshoai "kensho.ai/kdeployment/pkg/generated/informers/externalversions/distribution.kensho.ai"
 	internalinterfaces "kensho.ai/kdeployment/pkg/generated/informers/externalversions/internalinterfaces"
-	kenshoai "kensho.ai/kdeployment/pkg/generated/informers/externalversions/kensho.ai"
 )
 
 // SharedInformerOption defines the functional option type for SharedInformerFactory.
@@ -160,9 +160,9 @@ type SharedInformerFactory interface {
 	ForResource(resource schema.GroupVersionResource) (GenericInformer, error)
 	WaitForCacheSync(stopCh <-chan struct{}) map[reflect.Type]bool
 
-	Kensho() kenshoai.Interface
+	Distribution() distributionkenshoai.Interface
 }
 
-func (f *sharedInformerFactory) Kensho() kenshoai.Interface {
-	return kenshoai.New(f, f.namespace, f.tweakListOptions)
+func (f *sharedInformerFactory) Distribution() distributionkenshoai.Interface {
+	return distributionkenshoai.New(f, f.namespace, f.tweakListOptions)
 }

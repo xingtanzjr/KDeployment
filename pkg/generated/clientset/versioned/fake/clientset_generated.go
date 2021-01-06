@@ -13,8 +13,8 @@ import (
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/testing"
 	clientset "kensho.ai/kdeployment/pkg/generated/clientset/versioned"
-	kenshov1 "kensho.ai/kdeployment/pkg/generated/clientset/versioned/typed/kensho.ai/v1"
-	fakekenshov1 "kensho.ai/kdeployment/pkg/generated/clientset/versioned/typed/kensho.ai/v1/fake"
+	distributionv1 "kensho.ai/kdeployment/pkg/generated/clientset/versioned/typed/distribution.kensho.ai/v1"
+	fakedistributionv1 "kensho.ai/kdeployment/pkg/generated/clientset/versioned/typed/distribution.kensho.ai/v1/fake"
 )
 
 // NewSimpleClientset returns a clientset that will respond with the provided objects.
@@ -64,7 +64,7 @@ func (c *Clientset) Tracker() testing.ObjectTracker {
 
 var _ clientset.Interface = &Clientset{}
 
-// KenshoV1 retrieves the KenshoV1Client
-func (c *Clientset) KenshoV1() kenshov1.KenshoV1Interface {
-	return &fakekenshov1.FakeKenshoV1{Fake: &c.Fake}
+// DistributionV1 retrieves the DistributionV1Client
+func (c *Clientset) DistributionV1() distributionv1.DistributionV1Interface {
+	return &fakedistributionv1.FakeDistributionV1{Fake: &c.Fake}
 }

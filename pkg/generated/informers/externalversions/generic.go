@@ -11,7 +11,7 @@ import (
 
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
-	v1 "kensho.ai/kdeployment/pkg/apis/kensho.ai/v1"
+	v1 "kensho.ai/kdeployment/pkg/apis/distribution.kensho.ai/v1"
 )
 
 // GenericInformer is type of SharedIndexInformer which will locate and delegate to other
@@ -40,9 +40,9 @@ func (f *genericInformer) Lister() cache.GenericLister {
 // TODO extend this to unknown resources with a client pool
 func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
-	// Group=kensho.ai, Version=v1
+	// Group=distribution.kensho.ai, Version=v1
 	case v1.SchemeGroupVersion.WithResource("kdeployments"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Kensho().V1().KDeployments().Informer()}, nil
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Distribution().V1().KDeployments().Informer()}, nil
 
 	}
 

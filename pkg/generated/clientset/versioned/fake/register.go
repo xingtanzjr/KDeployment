@@ -12,14 +12,14 @@ import (
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	serializer "k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	kenshov1 "kensho.ai/kdeployment/pkg/apis/kensho.ai/v1"
+	distributionv1 "kensho.ai/kdeployment/pkg/apis/distribution.kensho.ai/v1"
 )
 
 var scheme = runtime.NewScheme()
 var codecs = serializer.NewCodecFactory(scheme)
 
 var localSchemeBuilder = runtime.SchemeBuilder{
-	kenshov1.AddToScheme,
+	distributionv1.AddToScheme,
 }
 
 // AddToScheme adds all types of this clientset into the given scheme. This allows composition
