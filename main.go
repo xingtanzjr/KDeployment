@@ -13,43 +13,51 @@ import (
 	kdInformers "kensho.ai/kdeployment/pkg/generated/informers/externalversions/distribution.kensho.ai/v1"
 )
 
+// var clusterMap = map[string]string{
+// 	"aks-0": "/Users/zhangjinrui/.kube/config-aks-0",
+// 	"aks-1": "/Users/zhangjinrui/.kube/config-aks-1",
+// 	"aks-2": "/Users/zhangjinrui/.kube/config-aks-2",
+// }
+
+var clusterMap = map[string]string{
+	"aks-0": "/Users/zhangjinrui/.kube/config-backup",
+}
+
 func main() {
 	stopCh := make(chan struct{})
 	klog.InitFlags(nil)
 
-	kubeconfig := "/Users/zhangjinrui/.kube/config"
+	kdInformerMap := make(map[string]kdInformers.KDeploymentInformer)
+	kdClientMap := make(map[string]clientset.Interface)
+	deploymentInformerMap := make(map[string]appsinformers.DeploymentInformer)
+	kubeClientMap := make(map[string]kubernetes.Interface)
 
-	cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-	if err != nil {
-		klog.Error("Cannot parse kubeconfig")
+	for clusterName, configPath := range clusterMap {
+		kubeconfig := configPath
+
+		cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if err != nil {
+			klog.Error("Cannot parse kubeconfig")
+		}
+
+		// defaultClient, err := kubernetes.NewForConfig(cfg)
+		kdeploymentClient, err := clientset.NewForConfig(cfg)
+		kdInformerFactory := informers.NewSharedInformerFactory(kdeploymentClient, time.Second*30)
+
+		kubeClient, err := kubernetes.NewForConfig(cfg)
+		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
+
+		kdInformerMap[clusterName] = kdInformerFactory.Distribution().V1().KDeployments()
+		kdClientMap[clusterName] = kdeploymentClient
+		deploymentInformerMap[clusterName] = kubeInformerFactory.Apps().V1().Deployments()
+		kubeClientMap[clusterName] = kubeClient
+		kdInformerFactory.Start(stopCh)
+		kubeInformerFactory.Start(stopCh)
 	}
 
-	// defaultClient, err := kubernetes.NewForConfig(cfg)
-	kdeploymentClient, err := clientset.NewForConfig(cfg)
-	kdInformerFactory := informers.NewSharedInformerFactory(kdeploymentClient, time.Second*30)
-
-	kubeClient, err := kubernetes.NewForConfig(cfg)
-	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
-
-	kdInformerMap := make(map[string]kdInformers.KDeploymentInformer)
-	kdInformerMap["cluster1"] = kdInformerFactory.Distribution().V1().KDeployments()
-
-	kdClientMap := make(map[string]clientset.Interface)
-	kdClientMap["cluster1"] = kdeploymentClient
-
-	deploymentInformerMap := make(map[string]appsinformers.DeploymentInformer)
-	deploymentInformerMap["cluster1"] = kubeInformerFactory.Apps().V1().Deployments()
-
-	kubeClientMap := make(map[string]kubernetes.Interface)
-	kubeClientMap["cluster1"] = kubeClient
-
 	kdController := NewKDController(kdInformerMap, kdClientMap, deploymentInformerMap, kubeClientMap)
-	kdInformerFactory.Distribution().V1().KDeployments().Informer()
 
-	kdInformerFactory.Start(stopCh)
-	kubeInformerFactory.Start(stopCh)
-
-	if err = kdController.Run(1, stopCh); err != nil {
+	if err := kdController.Run(1, stopCh); err != nil {
 		klog.Fatalf("Error running controller: %s", err.Error())
 	}
 }
