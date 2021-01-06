@@ -72,16 +72,24 @@ func NewKDController(
 	// set up event handler for each Informer
 	for clusterId, informer := range informerMap {
 		informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-			AddFunc: func(obj interface{}) {
-				kdController.enqueueKDeployment(clusterId, obj)
-			},
-			UpdateFunc: func(old, new interface{}) {
-				kdController.enqueueKDeployment(clusterId, new)
-			},
+			AddFunc:    kdController.generateAddEnqueueFunc(clusterId),
+			UpdateFunc: kdController.generateUpdateEnqueueFunc(clusterId),
 		})
 	}
 
 	return kdController
+}
+
+func (c *KDController) generateAddEnqueueFunc(clusterId string) func(obj interface{}) {
+	return func(obj interface{}) {
+		c.enqueueKDeployment(clusterId, obj)
+	}
+}
+
+func (c *KDController) generateUpdateEnqueueFunc(clusterId string) func(old, new interface{}) {
+	return func(old, new interface{}) {
+		c.enqueueKDeployment(clusterId, new)
+	}
 }
 
 func (c *KDController) enqueueKDeployment(clusterId string, obj interface{}) {
@@ -194,10 +202,10 @@ func (c *KDController) processOneKDEventItem(item KDEventItem) error {
 // Ensure that the KDeployment will be replicated to each cluster
 func (c *KDController) replicaKDeployment(clustertool KDClusterTool, kdeployment *v1.KDeployment) error {
 	lister := clustertool.lister
-	_, err := lister.KDeployments(kdeployment.Namespace).Get(kdeployment.Name)
+	currentKDeployment, err := lister.KDeployments(kdeployment.Namespace).Get(kdeployment.Name)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			_, err := clustertool.client.DistributionV1().KDeployments(kdeployment.Namespace).Create(context.TODO(), kdeployment, metav1.CreateOptions{})
+			_, err := clustertool.client.DistributionV1().KDeployments(kdeployment.Namespace).Create(context.TODO(), c.newKDeployment(kdeployment), metav1.CreateOptions{})
 			if err != nil {
 				return err
 			}
@@ -205,8 +213,19 @@ func (c *KDController) replicaKDeployment(clustertool KDClusterTool, kdeployment
 		} else {
 			return err
 		}
+	} else if c.isKDeploymentDifferent(currentKDeployment, kdeployment) {
+		// TODO sync kdeployment between different cluster
+		// clustertool.client.DistributionV1().KDeployments(kdeployment.Namespace).Update(context.TODO(), c.newKDeployment(kdeployment), metav1.UpdateOptions{})
+		// klog.Info("update KDeployment[%s] on cluster [%s]", kdeployment.Name, clustertool.clusterId)
 	}
 	return nil
+}
+
+func (c *KDController) isKDeploymentDifferent(kd1 *v1.KDeployment, kd2 *v1.KDeployment) bool {
+	if kd1.Spec.ReplicaPolicy != kd2.Spec.ReplicaPolicy || *kd1.Spec.TotalReplicas != *kd2.Spec.TotalReplicas {
+		return true
+	}
+	return false
 }
 
 func (c *KDController) syncDeployment(clustertool KDClusterTool, eventItem KDEventItem, replicas *int32) error {
@@ -247,6 +266,16 @@ func (c *KDController) newDeployment(kdeployment *v1.KDeployment, replicas *int3
 	}
 	deployment.Spec.Replicas = replicas
 	return deployment
+}
+
+func (c *KDController) newKDeployment(kdeployment *v1.KDeployment) *v1.KDeployment {
+	return &v1.KDeployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      kdeployment.ObjectMeta.Name,
+			Namespace: kdeployment.ObjectMeta.Namespace,
+		},
+		Spec: *kdeployment.Spec.DeepCopy(),
+	}
 }
 
 func (c *KDController) getKDeployment(clusterId string, namespace string, name string) (*v1.KDeployment, error) {

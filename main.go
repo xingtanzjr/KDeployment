@@ -13,15 +13,15 @@ import (
 	kdInformers "kensho.ai/kdeployment/pkg/generated/informers/externalversions/distribution.kensho.ai/v1"
 )
 
-// var clusterMap = map[string]string{
-// 	"aks-0": "/Users/zhangjinrui/.kube/config-aks-0",
-// 	"aks-1": "/Users/zhangjinrui/.kube/config-aks-1",
-// 	"aks-2": "/Users/zhangjinrui/.kube/config-aks-2",
-// }
-
 var clusterMap = map[string]string{
-	"aks-0": "/Users/zhangjinrui/.kube/config-backup",
+	"aks-0": "/Users/zhangjinrui/.kube/config-aks-0",
+	"aks-1": "/Users/zhangjinrui/.kube/config-aks-1",
+	"aks-2": "/Users/zhangjinrui/.kube/config-aks-2",
 }
+
+// var clusterMap = map[string]string{
+// 	"aks-0": "/Users/zhangjinrui/.kube/config-backup",
+// }
 
 func main() {
 	stopCh := make(chan struct{})
@@ -31,6 +31,11 @@ func main() {
 	kdClientMap := make(map[string]clientset.Interface)
 	deploymentInformerMap := make(map[string]appsinformers.DeploymentInformer)
 	kubeClientMap := make(map[string]kubernetes.Interface)
+
+	var kdeploymentInformerList []informers.SharedInformerFactory
+	var deploymentInformerList []kubeinformers.SharedInformerFactory
+
+	var kdController *KDController
 
 	for clusterName, configPath := range clusterMap {
 		kubeconfig := configPath
@@ -51,11 +56,20 @@ func main() {
 		kdClientMap[clusterName] = kdeploymentClient
 		deploymentInformerMap[clusterName] = kubeInformerFactory.Apps().V1().Deployments()
 		kubeClientMap[clusterName] = kubeClient
-		kdInformerFactory.Start(stopCh)
-		kubeInformerFactory.Start(stopCh)
+
+		kdeploymentInformerList = append(kdeploymentInformerList, kdInformerFactory)
+		deploymentInformerList = append(deploymentInformerList, kubeInformerFactory)
 	}
 
-	kdController := NewKDController(kdInformerMap, kdClientMap, deploymentInformerMap, kubeClientMap)
+	kdController = NewKDController(kdInformerMap, kdClientMap, deploymentInformerMap, kubeClientMap)
+
+	for _, informer := range kdeploymentInformerList {
+		informer.Start(stopCh)
+	}
+
+	for _, informer := range deploymentInformerList {
+		informer.Start(stopCh)
+	}
 
 	if err := kdController.Run(1, stopCh); err != nil {
 		klog.Fatalf("Error running controller: %s", err.Error())
