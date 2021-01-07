@@ -214,11 +214,46 @@ func (c *KDController) replicaKDeployment(clustertool KDClusterTool, kdeployment
 			return err
 		}
 	} else if c.isKDeploymentDifferent(currentKDeployment, kdeployment) {
-		// TODO sync kdeployment between different cluster
-		// clustertool.client.DistributionV1().KDeployments(kdeployment.Namespace).Update(context.TODO(), c.newKDeployment(kdeployment), metav1.UpdateOptions{})
-		// klog.Info("update KDeployment[%s] on cluster [%s]", kdeployment.Name, clustertool.clusterId)
+		if c.shouldUpdate(currentKDeployment, kdeployment) {
+			klog.Infof("KDeployment is different on cluster[%s]. Current: %s, Aimed: %s", clustertool.clusterId, *currentKDeployment.Spec.TotalReplicas, *kdeployment.Spec.TotalReplicas)
+			_, err := clustertool.client.DistributionV1().KDeployments(kdeployment.Namespace).Update(context.TODO(), c.updateKDeployment(currentKDeployment, kdeployment), metav1.UpdateOptions{})
+			if err != nil {
+				klog.Error(err, fmt.Sprintf("Failed to update KDeployment[%s] on cluster[%s]", clustertool.clusterId, kdeployment.Name))
+			} else {
+				klog.Infof("update KDeployment[%s] on cluster [%s]", kdeployment.Name, clustertool.clusterId)
+			}
+		}
 	}
 	return nil
+}
+
+func (c *KDController) shouldUpdate(currentKD *v1.KDeployment, newKD *v1.KDeployment) bool {
+	if currentKD.ObjectMeta.ManagedFields == nil {
+		return true
+	}
+	currentKDUpdateTime := c.getUpdateTime(currentKD.ObjectMeta)
+	newKDUpdateTime := c.getUpdateTime(newKD.ObjectMeta)
+	if currentKDUpdateTime == nil && newKDUpdateTime != nil {
+		return true
+	}
+	if currentKDUpdateTime.Before(newKDUpdateTime) {
+		return true
+	}
+	return false
+}
+
+func (c *KDController) getUpdateTime(meta metav1.ObjectMeta) *metav1.Time {
+	if meta.ManagedFields == nil || len(meta.ManagedFields) == 0 {
+		return nil
+	}
+
+	var ret = meta.ManagedFields[0].Time
+	for _, entity := range meta.ManagedFields {
+		if ret == nil || ret.Before(entity.Time) {
+			ret = entity.Time
+		}
+	}
+	return ret
 }
 
 func (c *KDController) isKDeploymentDifferent(kd1 *v1.KDeployment, kd2 *v1.KDeployment) bool {
@@ -276,6 +311,11 @@ func (c *KDController) newKDeployment(kdeployment *v1.KDeployment) *v1.KDeployme
 		},
 		Spec: *kdeployment.Spec.DeepCopy(),
 	}
+}
+
+func (c *KDController) updateKDeployment(originKD *v1.KDeployment, newKD *v1.KDeployment) *v1.KDeployment {
+	originKD.Spec = *newKD.Spec.DeepCopy()
+	return originKD
 }
 
 func (c *KDController) getKDeployment(clusterId string, namespace string, name string) (*v1.KDeployment, error) {
