@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -257,7 +258,7 @@ func (c *KDController) getUpdateTime(meta metav1.ObjectMeta) *metav1.Time {
 }
 
 func (c *KDController) isKDeploymentDifferent(kd1 *v1.KDeployment, kd2 *v1.KDeployment) bool {
-	if kd1.Spec.ReplicaPolicy != kd2.Spec.ReplicaPolicy || *kd1.Spec.TotalReplicas != *kd2.Spec.TotalReplicas {
+	if !reflect.DeepEqual(kd1.Spec, kd2.Spec) {
 		return true
 	}
 	return false
@@ -278,8 +279,9 @@ func (c *KDController) syncDeployment(clustertool KDClusterTool, eventItem KDEve
 			// Create new deployment for KDeployment
 			clustertool.kubeclient.AppsV1().Deployments(namespace).Create(context.TODO(), c.newDeployment(kdeployment, replicas), metav1.CreateOptions{})
 			klog.Infof("Create deployment[%s] in cluster[%s]", deploymentName, clustertool.clusterId)
+		} else {
+			klog.Errorf("Failed to check status of deployment[%s] in cluster[%s]", deploymentName, clustertool.clusterId)
 		}
-		klog.Errorf("Failed to check status of deployment[%s] in cluster[%s]", deploymentName, clustertool.clusterId)
 	} else if *deployment.Spec.Replicas != *replicas {
 		// Sync the replicas
 		clustertool.kubeclient.AppsV1().Deployments(namespace).Update(context.TODO(), c.newDeployment(kdeployment, replicas), metav1.UpdateOptions{})
